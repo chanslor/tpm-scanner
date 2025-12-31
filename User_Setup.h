@@ -1,8 +1,10 @@
 /*
- * User_Setup.h - TFT_eSPI Configuration for ESP32-2432S035
+ * User_Setup.h - TFT_eSPI Configuration for ILI9488 3.5" Display
  *
- * This file configures the TFT_eSPI library for the ESP32-2432S035 board
- * which has a 3.5" 480x320 TFT display with ST7796 driver.
+ * This file configures the TFT_eSPI library for a 3.5" 480x320 TFT
+ * display module with ILI9488 driver, connected to ESP32 DevKit via HSPI.
+ *
+ * DISPLAY: 3.5" TFT LCD Touch Screen Shield 480x320 SPI ILI9488
  *
  * INSTALLATION:
  *   1. Find your Arduino libraries folder:
@@ -16,9 +18,18 @@
  *
  *   4. Recompile your sketch
  *
+ * WIRING (HSPI - separate from CC1101's VSPI):
+ *   TFT_SCLK  -> GPIO 14 (Green wire)
+ *   TFT_MISO  -> GPIO 12 (Purple wire)
+ *   TFT_MOSI  -> GPIO 13 (White wire)
+ *   TFT_CS    -> GPIO 15 (Red wire)
+ *   TFT_DC    -> GPIO 2  (Yellow wire)
+ *   TFT_RST   -> GPIO 4  (Orange wire)
+ *   TFT_BL    -> GPIO 22 (Blue wire)
+ *
  * TROUBLESHOOTING:
- *   - White screen: Wrong driver (must be ST7796_DRIVER)
- *   - No display: Check backlight pin (GPIO 27)
+ *   - White/pulsing screen: Wrong driver (must be ILI9488_DRIVER)
+ *   - No display: Check backlight pin (GPIO 22)
  *   - Inverted colors: Uncomment TFT_INVERSION_ON or OFF
  *   - Rotated wrong: Adjust tft.setRotation() in code
  */
@@ -27,7 +38,7 @@
 // DISPLAY DRIVER - CRITICAL! Must match your display
 // ====================================================================================
 
-#define ST7796_DRIVER      // 3.5" 480x320 display (ESP32-2432S035)
+#define ILI9488_DRIVER     // 3.5" 480x320 display (ILI9488)
 
 // ====================================================================================
 // DISPLAY DIMENSIONS
@@ -37,19 +48,19 @@
 #define TFT_HEIGHT 480
 
 // ====================================================================================
-// ESP32-2432S035 PIN DEFINITIONS
+// ESP32 DevKit 30-pin + ST7796 TFT PIN DEFINITIONS
 // ====================================================================================
 
-// Display uses HSPI
-#define TFT_MISO  12    // SPI MISO
-#define TFT_MOSI  13    // SPI MOSI
-#define TFT_SCLK  14    // SPI Clock
-#define TFT_CS    15    // Chip select
-#define TFT_DC     2    // Data/Command
-#define TFT_RST   -1    // Reset (not connected, use -1)
+// Display uses HSPI (separate ST7796 module wired to ESP32 DevKit)
+#define TFT_MISO  12    // SPI MISO (HSPI) - Purple wire
+#define TFT_MOSI  13    // SPI MOSI (HSPI) - White wire
+#define TFT_SCLK  14    // SPI Clock (HSPI) - Green wire
+#define TFT_CS    15    // Chip select - Red wire
+#define TFT_DC     2    // Data/Command - Yellow wire
+#define TFT_RST    4    // Reset - Orange wire
 
 // Backlight control
-#define TFT_BL    27    // Backlight control pin
+#define TFT_BL    22    // Backlight - Blue wire
 #define TFT_BACKLIGHT_ON HIGH  // HIGH to turn on backlight
 
 // ====================================================================================
@@ -60,8 +71,8 @@
 // VSPI is left free for CC1101 radio module
 #define USE_HSPI_PORT
 
-// SPI frequency - 80MHz works well for this display
-#define SPI_FREQUENCY       80000000
+// SPI frequency - 40MHz is stable for this display
+#define SPI_FREQUENCY       40000000
 
 // Read frequency (lower for stability)
 #define SPI_READ_FREQUENCY  20000000
@@ -113,7 +124,7 @@
 // ====================================================================================
 
 // Uncomment if red and blue are swapped
-// #define TFT_RGB_ORDER TFT_BGR
+#define TFT_RGB_ORDER TFT_BGR  // Color order for ESP32-3248S035C
 
 // ====================================================================================
 // TRANSACTIONS (for multi-SPI bus compatibility)

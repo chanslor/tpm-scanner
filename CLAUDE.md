@@ -24,7 +24,8 @@ ESP32-based TPMS (Tire Pressure Monitoring System) scanner using CC1101 wireless
 **Hardware:**
 - ESP32 DevKit (30-pin) - standard board with all GPIO accessible
 - CC1101 Wireless Module with SMA Antenna (315 MHz)
-- 0.96" OLED Display (SSD1306 128x64, I2C) - for portable viewing
+- ILI9488 TFT Display (3.5" 480x320, SPI) - full color display
+- Alternative: 0.96" OLED (SSD1306 128x64, I2C) - see OLED section below
 
 **Purpose:** Detect and decode TPMS sensor transmissions to display tire pressure (PSI) and temperature (Fahrenheit) data in real-time.
 
@@ -50,16 +51,25 @@ CC1101 Pin    ESP32 Pin    Wire Color
 8. GDO2   →   (not used)   -
 ```
 
-### OLED Display Quick Reference
+### ILI9488 TFT Display Quick Reference (HSPI)
 
 ```
-OLED Pin      ESP32 Pin    Wire Color
+TFT Pin       ESP32 Pin    Wire Color
 ────────────────────────────────────────
 VCC       →   3V3          Red
 GND       →   GND          Black
-SDA       →   GPIO 4       Yellow
-SCL       →   GPIO 22      Orange
+SCLK      →   GPIO 14      Green
+MISO      →   GPIO 12      Purple
+MOSI      →   GPIO 13      White
+CS        →   GPIO 15      Red
+DC        →   GPIO 2       Yellow
+RST       →   GPIO 4       Orange
+LED/BL    →   GPIO 22      Blue
 ```
+
+**Display:** 3.5" TFT LCD Touch Screen Shield 480x320 SPI ILI9488
+
+**Note:** TFT uses HSPI bus (separate from CC1101's VSPI) - no cable splicing needed!
 
 ### CC1101 Module Pin Layout
 
@@ -94,6 +104,7 @@ SCL       →   GPIO 22      Orange
 - **Multi-Protocol Support** - Toyota, Schrader, and Generic decoders
 - **SPI Timeout Protection** - All SPI operations have 100ms timeout to prevent hangs
 - **BOOT Button Display Modes** - Press BOOT button (GPIO 0) to cycle through 3 display modes
+- **Flicker-Free Display** - Smart redraw only clears screen when content changes
 
 ## TPMS Background
 
@@ -177,39 +188,118 @@ For 315 MHz: FREQ2=0x0C, FREQ1=0x1D, FREQ0=0x89
 | CS | 5 | CC1101 chip select |
 | GDO0 | 21 | Sync word interrupt |
 
-### OLED Display (I2C)
+### ILI9488 TFT Display (HSPI)
 
-| Function | GPIO | Notes |
-|----------|------|-------|
-| SDA | 4 | I2C Data |
-| SCL | 22 | I2C Clock |
-| Address | 0x3C | Default I2C address |
+| Function | GPIO | Wire Color | Notes |
+|----------|------|------------|-------|
+| SCLK | 14 | Green | HSPI Clock |
+| MISO | 12 | Purple | HSPI MISO |
+| MOSI | 13 | White | HSPI MOSI |
+| CS | 15 | Red | Chip select |
+| DC | 2 | Yellow | Data/command |
+| RST | 4 | Orange | Reset |
+| LED/BL | 22 | Blue | Backlight control |
 
-**Display Zones (0.96" SSD1306 128x64):**
+**Display Layout (3.5" ILI9488 480x320):**
 
-The display has a dual-color layout with yellow at the top and blue below:
+Full color TFT with header bar and sensor list:
 
 ```
-Y=0  ┌────────────────────────────┐
-     │      YELLOW ZONE           │  ← Y=0 to Y=15 (16 pixels)
-     │  Title text (Y=0-7)        │     Header area
-     │  Separator line (Y=10)     │
-Y=15 ├────────────────────────────┤
-     │                            │
-     │       BLUE ZONE            │  ← Y=16 to Y=63 (48 pixels)
-     │   Content/data area        │     Main content area
-     │                            │
-Y=63 └────────────────────────────┘
+Y=0   ┌────────────────────────────────────────┐
+      │  TPMS Scanner    315MHz    Sensors: 4  │  ← Header (40px)
+Y=40  ├────────────────────────────────────────┤
+      │  ID: 9421A57   33.0 PSI   75°F   ████  │  ← Sensor rows
+      │  ID: 8B3C22A   35.2 PSI   68°F   ███   │     (55px each)
+      │  ID: 1F7E91B   31.5 PSI   72°F   ███   │
+      │  ID: A42B10C   44.0 PSI   80°F   ██    │
+      │                                        │
+Y=320 └────────────────────────────────────────┘
 ```
 
-- **Yellow zone (Y=0-15)**: Title and separator line only
-- **Blue zone (Y=16-63)**: All data content starts at Y=16 to avoid overlap with yellow
+- **Header**: Title, frequency, sensor count, uptime
+- **Sensor rows**: ID, pressure (PSI + kPa), temperature, RSSI bars
+- **Color coding**: Green=OK, Yellow=high, Red=low pressure
 
 ### Button
 
 | Function | GPIO | Notes |
 |----------|------|-------|
 | BOOT | 0 | Display mode button (built into ESP32 DevKit) |
+
+---
+
+## Alternative: OLED Display (SSD1306)
+
+For a more compact build, you can use a 0.96" OLED display instead of the TFT.
+
+### OLED Wiring (I2C)
+
+```
+OLED Pin      ESP32 Pin    Wire Color
+────────────────────────────────────────
+VCC       →   3V3          Red
+GND       →   GND          Black
+SDA       →   GPIO 4       Yellow
+SCL       →   GPIO 22      Orange
+```
+
+### Switching to OLED
+
+In `tpm-scanner.ino`, change the display option:
+
+```cpp
+#define USE_OLED_DISPLAY      // Uncomment for OLED
+// #define USE_TFT_DISPLAY    // Comment out TFT
+```
+
+Install OLED libraries:
+```bash
+arduino-cli lib install "Adafruit SSD1306"
+arduino-cli lib install "Adafruit GFX Library"
+```
+
+### OLED Display Modes
+
+Press **BOOT button** (GPIO 0) to cycle through 3 modes:
+
+**Mode 1: Scatter Plot**
+```
+┌────────────────────────────────┐
+│ 141                       203  │  ← Sensors / Readings
+├────────────────────────────────┤
+│ │        ▪▪▪▪▪▪                │
+│ │       ▪▪▪▪▪▪▪▪               │  ← PSI distribution
+│ ├──────────────────────────────│
+│ 20         40         60       │  ← PSI scale
+└────────────────────────────────┘
+```
+
+**Mode 2: Sensor List**
+```
+┌────────────────────────────────┐
+│ SENSORS (4)                    │
+│────────────────────────────────│
+│ 9421A5  33  75F  +++  *        │
+│ 8B3C22  35  68F  ++            │
+└────────────────────────────────┘
+```
+
+**Mode 3: Statistics**
+```
+┌────────────────────────────────┐
+│      STATISTICS                │
+│────────────────────────────────│
+│ Uptime: 23m45s                 │
+│ Packets: 1247                  │
+│ Sensors: 141 (4 active)        │
+└────────────────────────────────┘
+```
+
+### OLED Pin Conflict Note
+
+The OLED uses GPIO 4 (SDA) and GPIO 22 (SCL). If using TFT, these same pins are used for TFT_RST and TFT_BL. **You cannot use both displays simultaneously.**
+
+---
 
 ## Architecture
 
@@ -241,11 +331,12 @@ Y=63 └────────────────────────
    - New sensor highlighting
 
 5. **Display Renderer**
-   - OLED scatter plot visualization
-   - Yellow zone: unique sensor count + reading count
-   - Blue zone: PSI histogram (20-60 PSI on X-axis)
-   - Dots stack vertically as readings accumulate
-   - Visual representation of "RF traffic" around you
+   - TFT full-color visualization (480x320)
+   - Header bar with status info
+   - Scrollable sensor list with details
+   - Color-coded pressure/temperature indicators
+   - RSSI signal strength bars
+   - Flicker-free updates (only clears screen when sensor count changes)
 
 ### Data Flow
 
@@ -346,24 +437,29 @@ This creates a "rolling window" effect where:
 
 If timeouts persist, the module may need replacement.
 
-### OLED Display Not Working
+### TFT Display Not Working
 
-**Symptom:** OLED stays off or blank
+**Symptom:** TFT stays off, white, pulsing, or garbled
 
 **Check:**
-1. I2C address is 0x3C (most common)
-2. SDA connected to GPIO 4
-3. SCL connected to GPIO 22
+1. Backlight pin (GPIO 22) connected - screen will be dark without it
+2. All SPI pins correct (SCLK=14, MISO=12, MOSI=13, CS=15, DC=2)
+3. RST pin (GPIO 4) connected
 4. VCC is 3.3V (not 5V)
-5. Try swapping SDA/SCL wires if no I2C device found
+5. User_Setup.h copied to TFT_eSPI library folder
 
 **Serial output should show:**
 ```
-OLED pins: SDA=GPIO4, SCL=GPIO22
-Scanning I2C bus...
-  I2C device found at 0x3C
-OLED Display initialized (128x64)
+TFT Display initialized (480x320) on HSPI
+TFT pins: MISO=12, MOSI=13, SCLK=14, CS=15, DC=2, RST=4, BL=22
 ```
+
+**Common issues:**
+- **White/pulsing screen**: Wrong driver in User_Setup.h (must be ILI9488_DRIVER)
+- **No backlight**: Check GPIO 22 connection (labeled "LED" on some modules)
+- **Garbled display**: Wrong SPI frequency (try 40MHz) or pin mismatch
+- **Wrong colors**: Enable TFT_RGB_ORDER TFT_BGR in User_Setup.h
+- **Content flickering**: Fixed in code - only clears screen when sensor count changes
 
 ### No Sensors Detected
 
@@ -497,10 +593,19 @@ tpm-scanner/
 
 ## Library Dependencies
 
-- **Adafruit_SSD1306** - OLED display driver (install via `./deploy.sh libs`)
-- **Adafruit_GFX** - Graphics library for OLED
+**For TFT Display (default):**
+- **TFT_eSPI** - TFT display driver (requires User_Setup.h configuration)
 - **SPI** - Built into ESP32 core
-- **Wire** - I2C for OLED (built into ESP32 core)
+
+**For OLED Display (alternative):**
+- **Adafruit_SSD1306** - OLED display driver
+- **Adafruit_GFX** - Graphics library
+- **Wire** - I2C (built into ESP32 core)
+
+**TFT_eSPI Setup:**
+1. Install TFT_eSPI library via Arduino Library Manager
+2. Copy `User_Setup.h` from this project to the TFT_eSPI library folder
+3. Verify ILI9488_DRIVER is defined in User_Setup.h
 
 ## Build Info
 
@@ -509,13 +614,14 @@ tpm-scanner/
 | Board FQBN | esp32:esp32:esp32 |
 | Frequency | 315 MHz (North America) |
 | Modulation | 2-FSK (19.2 kbps) |
-| Display | 0.96" OLED SSD1306 (128x64) |
+| Display | 3.5" TFT ILI9488 (480x320) |
+| Display Bus | HSPI (separate from CC1101) |
+| Display Driver | ILI9488_DRIVER |
+| CC1101 Bus | VSPI |
 | Temperature | Fahrenheit |
-| Binary Size | ~322 KB |
+| Binary Size | ~365 KB |
 | Compile Time | ~30-45 seconds |
+| Display Update | 500ms (DISPLAY_UPDATE_MS) |
 | SPI Timeout | 100ms (SPI_TIMEOUT_MS) |
 | PSI Range | 20-60 (PSI_MIN/PSI_MAX) |
 | Button Debounce | 250ms (BUTTON_DEBOUNCE_MS) |
-| Display Modes | 3 (Scatter, Sensors, Stats) |
-| Histogram Decay | 3% every 5min (HISTOGRAM_DECAY_*) |
-| Histogram Floor | 1 (keeps ghost of past readings) |

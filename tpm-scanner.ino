@@ -5,8 +5,9 @@
  * on 315 MHz using a CC1101 wireless module (North America).
  *
  * Hardware:
- *   ESP32-2432S035 (3.5" 320x480 TFT display)
- *   CC1101 Wireless Module with SMA Antenna
+ *   ESP32 DevKit (30-pin)
+ *   CC1101 Wireless Module with SMA Antenna (315 MHz)
+ *   ILI9488 TFT Display (3.5" 480x320 SPI) - or 0.96" OLED (see below)
  *
  * Features:
  *   - 315 MHz scanning (North America - USA, Canada, Mexico)
@@ -14,17 +15,29 @@
  *   - Sensor ID, pressure, temperature decoding
  *   - Signal strength (RSSI) display
  *   - Detection history and logging
- *   - Touch interface for frequency selection
  *
- * CC1101 Wiring to ESP32-2432S035:
+ * CC1101 Wiring (VSPI):
  *   CC1101 Pin 1 (GND)   -> GND
  *   CC1101 Pin 2 (VCC)   -> 3.3V
  *   CC1101 Pin 3 (GDO0)  -> GPIO 21 (interrupt)
- *   CC1101 Pin 4 (CSN)   -> GPIO 22 (chip select)
+ *   CC1101 Pin 4 (CSN)   -> GPIO 5  (chip select)
  *   CC1101 Pin 5 (SCK)   -> GPIO 18 (VSPI CLK)
  *   CC1101 Pin 6 (MOSI)  -> GPIO 23 (VSPI MOSI)
  *   CC1101 Pin 7 (MISO)  -> GPIO 19 (VSPI MISO)
- *   CC1101 Pin 8 (GDO2)  -> Not connected (optional GPIO 4)
+ *   CC1101 Pin 8 (GDO2)  -> Not connected
+ *
+ * ILI9488 TFT Wiring (HSPI - separate from CC1101):
+ *   TFT_SCLK  -> GPIO 14 (HSPI CLK)  - Green wire
+ *   TFT_MISO  -> GPIO 12 (HSPI MISO) - Purple wire
+ *   TFT_MOSI  -> GPIO 13 (HSPI MOSI) - White wire
+ *   TFT_CS    -> GPIO 15 (chip select) - Red wire
+ *   TFT_DC    -> GPIO 2  (data/command) - Yellow wire
+ *   TFT_RST   -> GPIO 4  (reset) - Orange wire
+ *   TFT_BL    -> GPIO 22 (backlight) - Blue wire
+ *
+ * OLED Wiring (I2C - alternative to TFT):
+ *   VCC -> 3.3V, GND -> GND, SDA -> GPIO 4, SCL -> GPIO 22
+ *   To use OLED: uncomment USE_OLED_DISPLAY, comment USE_TFT_DISPLAY
  *
  * Author: TPMS Scanner Project
  * Date: December 2024
@@ -34,8 +47,8 @@
 #include <Wire.h>
 
 // Display options - uncomment ONE:
-#define USE_OLED_DISPLAY      // 0.96" I2C OLED (SSD1306 128x64)
-// #define USE_TFT_DISPLAY    // 3.5" SPI TFT (ST7796 480x320)
+// #define USE_OLED_DISPLAY   // 0.96" I2C OLED (SSD1306 128x64)
+#define USE_TFT_DISPLAY       // 3.5" SPI TFT (ST7796 480x320)
 
 #ifdef USE_TFT_DISPLAY
 #include <TFT_eSPI.h>
@@ -46,11 +59,22 @@
 #include <Adafruit_SSD1306.h>
 #endif
 
-// OLED Display pins (I2C)
+// OLED Display pins (I2C) - only used if USE_OLED_DISPLAY is defined
 #define OLED_SDA  4   // D4 (GPIO 4)
 #define OLED_SCL  22  // D22 (GPIO 22) - standard ESP32 I2C SCL
 #define OLED_RESET -1
 #define OLED_ADDRESS 0x3C
+
+// TFT Display pins (HSPI) - only used if USE_TFT_DISPLAY is defined
+// These match User_Setup.h - wired to ILI9488 3.5" 480x320 module
+#define TFT_BL_PIN    22    // Backlight (GPIO 22 - Blue wire)
+// Other TFT pins defined in User_Setup.h:
+//   TFT_MISO  = 12 (HSPI) - Purple wire
+//   TFT_MOSI  = 13 (HSPI) - White wire
+//   TFT_SCLK  = 14 (HSPI) - Green wire
+//   TFT_CS    = 15 - Red wire
+//   TFT_DC    = 2 - Yellow wire
+//   TFT_RST   = 4 - Orange wire
 
 // ============================================================================
 // Pin Definitions - CC1101 Module
@@ -261,7 +285,7 @@ uint8_t psiHistogram[PSI_BINS];  // Count of readings at each PSI
 uint16_t uniqueSensors = 0;      // Count of unique sensor IDs seen
 
 // Timing
-#define DISPLAY_UPDATE_MS 200
+#define DISPLAY_UPDATE_MS 500  // Slower updates to reduce flicker
 #define SENSOR_TIMEOUT_MS 300000   // 5 minutes timeout
 #define NEW_SENSOR_THRESHOLD 30000 // 30 seconds "new" indicator
 
@@ -657,10 +681,15 @@ void loop() {
 
 void initDisplay() {
 #ifdef USE_TFT_DISPLAY
+  // Initialize backlight pin
+  pinMode(TFT_BL_PIN, OUTPUT);
+  digitalWrite(TFT_BL_PIN, HIGH);  // Turn on backlight
+
   tft.init();
   tft.setRotation(1);  // Landscape (480x320)
   tft.fillScreen(COLOR_BG);
-  Serial.println("TFT Display initialized (480x320)");
+  Serial.println("TFT Display initialized (480x320) on HSPI");
+  Serial.println("TFT pins: MISO=12, MOSI=13, SCLK=14, CS=15, DC=2, RST=4, BL=22");
 #elif defined(USE_OLED_DISPLAY)
   // Initialize I2C with custom pins
   Serial.printf("OLED pins: SDA=GPIO%d, SCL=GPIO%d\n", OLED_SDA, OLED_SCL);
@@ -694,30 +723,47 @@ void initDisplay() {
 #endif
 }
 
+// Track if we need full redraw (reduces flicker)
+static int lastSensorCount = -1;
+static bool needsFullRedraw = true;
+
 void drawDisplay() {
 #ifdef USE_TFT_DISPLAY
-  // Don't clear entire screen - just redraw sections for smoother updates
+  // Only do full clear when sensor count changes or on first draw
+  bool sensorCountChanged = (sensorCount != lastSensorCount);
+
   drawHeader();
 
   // Draw sensor list
   int visibleCount = min(sensorCount - scrollOffset, MAX_VISIBLE_SENSORS);
   int yPos = HEADER_HEIGHT + 5;
 
-  // Clear sensor area
-  tft.fillRect(0, HEADER_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT - HEADER_HEIGHT, COLOR_BG);
+  // Only clear sensor area when needed (reduces flicker)
+  bool didFullRedraw = false;
+  if (needsFullRedraw || sensorCountChanged) {
+    tft.fillRect(0, HEADER_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT - HEADER_HEIGHT, COLOR_BG);
+    lastSensorCount = sensorCount;
+    needsFullRedraw = false;
+    didFullRedraw = true;
+  }
 
   if (sensorCount == 0) {
-    // Show scanning message
-    tft.setTextColor(COLOR_TEXT);
-    tft.setTextSize(2);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString("Scanning for TPMS sensors...", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
-    tft.setTextSize(1);
-    tft.drawString("315 MHz (North America)", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 30);
+    // Show scanning message (only redraw on first frame or after sensor count change)
+    if (didFullRedraw) {
+      tft.setTextColor(COLOR_TEXT);
+      tft.setTextSize(2);
+      tft.setTextDatum(MC_DATUM);
+      tft.drawString("Scanning for TPMS sensors...", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
+      tft.setTextSize(1);
+      tft.drawString("315 MHz (North America)", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 30);
+    }
 
-    // Animated scanning indicator
+    // Animated scanning indicator - clear just the dots area
     static int scanAnim = 0;
     scanAnim = (scanAnim + 1) % 4;
+    tft.fillRect(SCREEN_WIDTH / 2 - 20, SCREEN_HEIGHT / 2 + 45, 40, 15, COLOR_BG);
+    tft.setTextSize(1);
+    tft.setTextDatum(MC_DATUM);
     String dots = "";
     for (int i = 0; i <= scanAnim; i++) dots += ".";
     tft.drawString(dots, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 50);

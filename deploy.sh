@@ -7,7 +7,7 @@
 #   ./deploy.sh compile  - Compile only
 #   ./deploy.sh upload   - Upload only
 #   ./deploy.sh monitor  - Serial monitor
-#   ./deploy.sh libs     - Install required libraries
+#   ./deploy.sh libs     - Install TFT_eSPI library
 #
 
 set -e
@@ -103,19 +103,18 @@ monitor() {
 install_libs() {
     echo "=== Installing required libraries ==="
 
-    # Adafruit SSD1306 - OLED display driver (primary)
-    arduino-cli lib install "Adafruit SSD1306"
-
-    # Adafruit GFX - Graphics library for OLED
-    arduino-cli lib install "Adafruit GFX Library"
-
-    # U8g2 - Alternative OLED display driver
-    arduino-cli lib install "U8g2"
+    # TFT_eSPI - TFT display driver for ST7796
+    arduino-cli lib install "TFT_eSPI"
 
     echo ""
     echo "=== Libraries installed ==="
     echo ""
-    echo "Adafruit SSD1306 library installed for OLED display support."
+    echo "TFT_eSPI library installed."
+    echo ""
+    echo "IMPORTANT: You must copy User_Setup.h from this project to the TFT_eSPI library folder!"
+    echo "  Linux:   ~/Arduino/libraries/TFT_eSPI/"
+    echo "  Mac:     ~/Documents/Arduino/libraries/TFT_eSPI/"
+    echo "  Windows: Documents\\Arduino\\libraries\\TFT_eSPI\\"
 }
 
 # Show usage
