@@ -301,11 +301,12 @@ The OLED shows a real-time **scatter plot** of tire pressures:
 │ │        ▪▪▪▪▪▪  ▪             │  ← Dots stack as readings
 │ │       ▪▪▪▪▪▪▪▪▪▪             │     accumulate at each PSI
 │ ├──────────────────────────────│
-│ 0         25         50        │  ← PSI scale (0-50)
+│ 20         40         60       │  ← PSI scale (20-60)
 └────────────────────────────────┘
 ```
 
 - **Yellow zone**: Large number = unique sensors, right side = total readings
-- **Blue zone**: PSI histogram - X axis is pressure (0-50 PSI)
+- **Blue zone**: PSI histogram - X axis is pressure (20-60 PSI)
 - **Dots**: Stack vertically as more readings come in at each PSI level
+- **Decay**: Bars very slowly shrink (3% every 5 min) to prevent maxing out, keeping a "ghost" of past readings
 - Drive in traffic to see the distribution build up around 30-35 PSI!

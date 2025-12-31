@@ -265,11 +265,19 @@ uint16_t uniqueSensors = 0;      // Count of unique sensor IDs seen
 #define SENSOR_TIMEOUT_MS 300000   // 5 minutes timeout
 #define NEW_SENSOR_THRESHOLD 30000 // 30 seconds "new" indicator
 
+// Histogram decay settings (prevents bars from maxing out over long runs)
+#define HISTOGRAM_DECAY_INTERVAL_MS 300000 // Decay every 5 minutes
+#define HISTOGRAM_DECAY_PERCENT 3          // Reduce by 3% each interval
+#define HISTOGRAM_MIN_VALUE 1              // Floor value (keeps "ghost" of past readings)
+
 // Display mode (cycle with BOOT button)
 uint8_t displayMode = DISPLAY_MODE_SCATTER;
 unsigned long lastButtonPress = 0;
 bool lastButtonState = HIGH;  // Button is active LOW
 #define BUTTON_DEBOUNCE_MS 250
+
+// Histogram decay timer
+unsigned long lastHistogramDecay = 0;
 
 // ============================================================================
 // SPI Timeout Helper
@@ -367,6 +375,7 @@ int manchesterDecode(uint8_t* input, int inputLen, uint8_t* output, int maxOutpu
 void tryDirectDecode(uint8_t* data, int len, int8_t rssi);
 void updateSensor(uint32_t id, float pressure, float temp, int8_t rssi, uint16_t freq, const char* protocol);
 void pruneOldSensors();
+void decayHistogram();
 void drawDisplay();
 void drawScatterPlot();
 void drawSensorList();
@@ -625,6 +634,12 @@ void loop() {
 
     // Redraw display
     drawDisplay();
+  }
+
+  // Decay histogram periodically (prevents bars from maxing out over long runs)
+  if (currentTime - lastHistogramDecay >= HISTOGRAM_DECAY_INTERVAL_MS) {
+    lastHistogramDecay = currentTime;
+    decayHistogram();
   }
 
   // Handle BOOT button for display mode switching
@@ -1478,6 +1493,29 @@ void pruneOldSensors() {
       i++;
     }
   }
+}
+
+void decayHistogram() {
+  // Reduce all histogram bins by HISTOGRAM_DECAY_PERCENT
+  // but keep a minimum floor so past readings leave a "ghost"
+  for (int i = 0; i < PSI_BINS; i++) {
+    if (psiHistogram[i] > HISTOGRAM_MIN_VALUE) {
+      // Calculate decay: reduce by X%
+      uint8_t decay = (psiHistogram[i] * HISTOGRAM_DECAY_PERCENT) / 100;
+      if (decay < 1) decay = 1;  // Ensure we always decay by at least 1
+
+      // Apply decay but maintain floor
+      if (psiHistogram[i] - decay >= HISTOGRAM_MIN_VALUE) {
+        psiHistogram[i] -= decay;
+      } else {
+        psiHistogram[i] = HISTOGRAM_MIN_VALUE;
+      }
+    }
+    // Bins at 0 stay at 0 (never had readings)
+    // Bins at HISTOGRAM_MIN_VALUE stay there (had readings, now at floor)
+  }
+
+  Serial.println("[DECAY] Histogram decayed by 3%");
 }
 
 // ============================================================================

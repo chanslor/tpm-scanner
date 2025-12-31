@@ -32,6 +32,7 @@ The scatter plot shows tire pressure distribution (20-60 PSI). Notice the two pe
   - **Mode 3**: Statistics (uptime, packet counts, RSSI)
 - **Real-Time Visualization** - 200ms display refresh
 - **Tracks 20+ Sensors** - With automatic timeout for stale readings
+- **Histogram Decay** - Bars very slowly shrink over time (3% every 5 min) to prevent maxing out during long runs, while keeping a "ghost" of past readings
 
 ## Hardware
 

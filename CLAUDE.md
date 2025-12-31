@@ -300,6 +300,19 @@ CC1101 Radio (315 MHz, 2-FSK)
 - Most readings cluster around 30-35 PSI (properly inflated passenger cars)
 - Higher readings (42-50 PSI) typically from trucks/SUVs
 
+### Histogram Decay
+
+To prevent the scatter plot bars from maxing out during long runs, the histogram uses a **very slow decay** mechanism:
+
+- **Decay Interval**: Every 5 minutes (HISTOGRAM_DECAY_INTERVAL_MS)
+- **Decay Rate**: 3% reduction per interval (HISTOGRAM_DECAY_PERCENT)
+- **Minimum Floor**: Bars never drop below 1 (HISTOGRAM_MIN_VALUE)
+
+This creates a "rolling window" effect where:
+- Active traffic keeps bars growing
+- When away from cars, bars very slowly shrink over 1-2 hours
+- Past readings leave a "ghost" (minimum of 1 dot) showing where traffic was detected
+
 ## Troubleshooting
 
 ### CC1101 Not Detected
@@ -504,3 +517,5 @@ tpm-scanner/
 | PSI Range | 20-60 (PSI_MIN/PSI_MAX) |
 | Button Debounce | 250ms (BUTTON_DEBOUNCE_MS) |
 | Display Modes | 3 (Scatter, Sensors, Stats) |
+| Histogram Decay | 3% every 5min (HISTOGRAM_DECAY_*) |
+| Histogram Floor | 1 (keeps ghost of past readings) |
