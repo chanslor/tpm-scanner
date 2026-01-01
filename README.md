@@ -4,7 +4,11 @@
 
 A passive 315 MHz receiver that detects tire pressure sensor broadcasts from passing vehicles and visualizes them in real-time. Watch tire pressures stack up on a scatter plot as cars drive by during your morning commute!
 
-![TPMS Scanner Project](project.jpg)
+![TPMS Scanner with 3.5" TFT Display](larger-display.jpg)
+*Updated build with 3.5" color TFT display (480x320)*
+
+![Original TPMS Scanner Project](project.jpg)
+*Original build with 0.96" OLED display*
 
 ## What is this?
 
@@ -36,6 +40,19 @@ The scatter plot shows tire pressure distribution (20-60 PSI). Notice the two pe
 
 ## Hardware
 
+### Option 1: 3.5" TFT Display (Recommended)
+
+| Component | Description | ~Cost |
+|-----------|-------------|-------|
+| ESP32 DevKit | 30-pin development board | $8 |
+| CC1101 Module | 315 MHz RF transceiver + antenna | $5 |
+| 3.5" TFT LCD | ILI9488 480x320 SPI display | $12 |
+| Jumper Wires | For connections | $2 |
+
+**Total: ~$27**
+
+### Option 2: 0.96" OLED Display (Compact)
+
 | Component | Description | ~Cost |
 |-----------|-------------|-------|
 | ESP32 DevKit | 30-pin development board | $8 |
@@ -47,6 +64,7 @@ The scatter plot shows tire pressure distribution (20-60 PSI). Notice the two pe
 
 ### Wiring
 
+**CC1101 Radio Module (both options):**
 ```
 CC1101          ESP32
 ───────────────────────
@@ -57,7 +75,25 @@ CSN      →      GPIO 5
 SCK      →      GPIO 18
 MOSI     →      GPIO 23
 MISO     →      GPIO 19
+```
 
+**3.5" TFT Display (HSPI):**
+```
+TFT             ESP32           Wire Color
+─────────────────────────────────────────
+VCC      →      3V3             Red
+GND      →      GND             Black
+SCLK     →      GPIO 14         Green
+MISO     →      GPIO 12         Purple
+MOSI     →      GPIO 13         White
+CS       →      GPIO 15         Red
+DC       →      GPIO 2          Yellow
+RST      →      GPIO 4          Orange
+LED/BL   →      GPIO 22         Blue
+```
+
+**0.96" OLED Display (I2C):**
+```
 OLED            ESP32
 ───────────────────────
 VCC      →      3V3
@@ -65,6 +101,8 @@ GND      →      GND
 SDA      →      GPIO 4
 SCL      →      GPIO 22
 ```
+
+*Note: TFT uses HSPI (separate from CC1101's VSPI) so both can operate simultaneously.*
 
 ## Quick Start
 
@@ -134,15 +172,15 @@ Press the **BOOT button** (GPIO 0) to cycle through modes:
 ## How It Works
 
 ```
-   TPMS Sensor          CC1101 Radio         ESP32            OLED
-   in tire              module               processor        display
+   TPMS Sensor          CC1101 Radio         ESP32            Display
+   in tire              module               processor        (TFT/OLED)
        │                    │                    │                │
        │  315 MHz RF        │                    │                │
        │  broadcast         │                    │                │
        ├───────────────────►│                    │                │
        │                    │  SPI data          │                │
        │                    ├───────────────────►│                │
-       │                    │                    │  I2C           │
+       │                    │                    │  SPI/I2C       │
        │                    │                    ├───────────────►│
        │                    │                    │                │
                          2-FSK              Manchester         Scatter
@@ -152,7 +190,7 @@ Press the **BOOT button** (GPIO 0) to cycle through modes:
 1. **TPMS sensors** broadcast pressure/temp on 315 MHz using 2-FSK modulation
 2. **CC1101** receives and demodulates the signal (sync word: 0x001A)
 3. **ESP32** Manchester-decodes the data and extracts sensor ID, pressure, temperature
-4. **OLED** displays the data as a scatter plot, sensor list, or statistics
+4. **Display** shows the data as a scatter plot, sensor list, or statistics
 
 ## Supported Protocols
 
@@ -182,9 +220,15 @@ Press the **BOOT button** (GPIO 0) to cycle through modes:
 - Check antenna is connected to CC1101 module
 - Verify wiring (especially VCC = 3.3V, not 5V!)
 
-**Display not working?**
+**TFT display not working?**
+- Check backlight pin (GPIO 22) is connected
+- Verify all SPI pins (SCLK=14, MISO=12, MOSI=13, CS=15, DC=2, RST=4)
+- Copy User_Setup.h to ~/Arduino/libraries/TFT_eSPI/
+- Must use ILI9488_DRIVER in User_Setup.h
+
+**OLED display not working?**
 - Check I2C address (usually 0x3C)
-- Verify SDA/SCL connections
+- Verify SDA (GPIO 4) / SCL (GPIO 22) connections
 
 **Weak signals?**
 - Use a proper 315 MHz antenna
