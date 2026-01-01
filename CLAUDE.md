@@ -71,6 +71,18 @@ LED/BL    →   GPIO 22      Blue
 
 **Note:** TFT uses HSPI bus (separate from CC1101's VSPI) - no cable splicing needed!
 
+### XPT2046 Touch Controller (DISABLED - Hardware Defect)
+
+**Status:** Touch is DISABLED due to a hardware defect on the display module.
+
+The display module has an XPT2046 resistive touch controller, but testing revealed
+that **T_DO (touch MISO) is not internally connected** to the XPT2046 chip on the PCB.
+The touch pressure detection (T_IRQ) works, but SPI data cannot be read.
+
+**Use the BOOT button (GPIO 0) to cycle display modes instead.**
+
+See "Touch Troubleshooting History" section below for full details of what was tried.
+
 ### CC1101 Module Pin Layout
 
 ```
@@ -104,6 +116,7 @@ LED/BL    →   GPIO 22      Blue
 - **Multi-Protocol Support** - Toyota, Schrader, and Generic decoders
 - **SPI Timeout Protection** - All SPI operations have 100ms timeout to prevent hangs
 - **BOOT Button Display Modes** - Press BOOT button (GPIO 0) to cycle through 3 display modes
+- **Touch Screen Support** - XPT2046 resistive touch for mode switching and sensor selection
 - **Flicker-Free Display** - Smart redraw only clears screen when content changes
 
 ## TPMS Background
@@ -199,6 +212,19 @@ For 315 MHz: FREQ2=0x0C, FREQ1=0x1D, FREQ0=0x89
 | DC | 2 | Yellow | Data/command |
 | RST | 4 | Orange | Reset |
 | LED/BL | 22 | Blue | Backlight control |
+
+### XPT2046 Touch (DISABLED - Hardware Defect)
+
+Touch is disabled due to a manufacturing defect on the display module.
+See "Touch Troubleshooting History" in the Troubleshooting section for details.
+
+| Function | GPIO | Status |
+|----------|------|--------|
+| T_IRQ | 26 | Works (detects pressure) |
+| T_CS | 27 | Connected |
+| T_DO | 12 | **DEFECTIVE** - not connected internally on module |
+| T_CLK | 14 | Connected |
+| T_DIN | 13 | Connected |
 
 **Display Layout (3.5" ILI9488 480x320):**
 
@@ -461,6 +487,65 @@ TFT pins: MISO=12, MOSI=13, SCLK=14, CS=15, DC=2, RST=4, BL=22
 - **Wrong colors**: Enable TFT_RGB_ORDER TFT_BGR in User_Setup.h
 - **Content flickering**: Fixed in code - only clears screen when sensor count changes
 
+### Touch Troubleshooting History (DISABLED)
+
+**Final Status:** Touch functionality was disabled after extensive debugging revealed a
+hardware defect on the display module - T_DO is not internally connected to the XPT2046.
+
+**What Was Tried:**
+
+1. **Initial Setup (TFT_eSPI library)**
+   - Added `XPT2046_DRIVER` define to User_Setup.h
+   - Configured TOUCH_CS (GPIO 27), TOUCH_DOUT, TOUCH_DIN, TOUCH_CLK
+   - Result: `tft.getTouch()` returned touched=0, x=0, y=34464 (garbage)
+
+2. **Wiring Verification**
+   - T_IRQ (GPIO 26) - **WORKING** - correctly goes LOW when screen touched
+   - T_CS (GPIO 27) - Connected and verified with multimeter
+   - Initially assumed T_CLK/T_DO/T_DIN shared internally with display SPI pins
+   - **Discovery:** Module has SEPARATE touch SPI pins that need individual wires
+
+3. **Added Touch SPI Wiring**
+   - Connected T_CLK → GPIO 14 (in addition to display SCLK)
+   - Connected T_DO → GPIO 12 (in addition to display MISO)
+   - Connected T_DIN → GPIO 13 (in addition to display MOSI)
+   - Verified all connections with multimeter - continuity confirmed
+   - Result: Still returning zeros
+
+4. **Debug Code Added**
+   - Manual HSPI reads at 100kHz (slow for XPT2046 compatibility)
+   - Explicit display CS deselect (GPIO 15 HIGH) before touch reads
+   - Test byte reads to check MISO line status
+
+5. **Key Diagnostic Finding**
+   ```
+   [TOUCH DEBUG] IRQ pin=0 (0=touched, 1=not touched)  ← WORKING
+   [TOUCH DEBUG] Manual HSPI (100kHz): rawX=0, rawY=0  ← ZEROS
+   [TOUCH DEBUG] Test byte: 0x00 or 0xFF (alternating) ← FLOATING
+   ```
+   - IRQ toggles correctly when touched (pressure detection works)
+   - SPI returns all zeros or alternating 0x00/0xFF (floating line)
+   - This indicates T_DO wire reaches GPIO 12, but isn't connected to XPT2046 internally
+
+6. **I2C Bus Scan**
+   - Scanned for alternative I2C touch controllers (GT911, FT6336, CST816)
+   - No I2C devices found on GPIO 21/22, 33/32, or 4/22
+   - Confirmed touch is SPI-based (XPT2046), not I2C
+
+**Conclusion:** The XPT2046 chip on this display module has a manufacturing defect -
+the T_DO (MISO) output is not connected to the header pin. The chip detects touch
+pressure (IRQ works) but cannot communicate position data over SPI.
+
+**Workaround:** Use BOOT button (GPIO 0) to cycle display modes.
+
+**If Using a Different Display Module:**
+If you have a working display module, re-enable touch by:
+1. Restore touch pin definitions in tpm-scanner.ino
+2. Restore touch initialization in initDisplay()
+3. Restore handleTouch() function
+4. Add XPT2046_DRIVER config back to User_Setup.h
+5. Wire: T_IRQ→GPIO26, T_CS→GPIO27, T_CLK→GPIO14, T_DO→GPIO12, T_DIN→GPIO13
+
 ### No Sensors Detected
 
 **Possible causes:**
@@ -625,3 +710,4 @@ tpm-scanner/
 | SPI Timeout | 100ms (SPI_TIMEOUT_MS) |
 | PSI Range | 20-60 (PSI_MIN/PSI_MAX) |
 | Button Debounce | 250ms (BUTTON_DEBOUNCE_MS) |
+| Touch Controller | DISABLED (hardware defect) |

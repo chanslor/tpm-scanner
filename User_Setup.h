@@ -77,23 +77,13 @@
 // Read frequency (lower for stability)
 #define SPI_READ_FREQUENCY  20000000
 
-// Touch SPI frequency (if using SPI touch, not I2C)
-#define SPI_TOUCH_FREQUENCY  2500000
-
 // ====================================================================================
-// TOUCH CONFIGURATION (GT911 I2C)
+// TOUCH CONFIGURATION
 // ====================================================================================
 
-// The ESP32-2432S035 uses GT911 capacitive touch via I2C
-// Touch is handled separately from TFT_eSPI
-// Touch pins:
-//   SDA = GPIO 33
-//   SCL = GPIO 32
-//   INT = GPIO 21 (shared with CC1101 GDO0 - may need to change!)
-//   RST = GPIO 25
-
-// Uncomment if using resistive touch (not typical for this board)
-// #define TOUCH_CS  33
+// Touch is DISABLED - the XPT2046 touch controller on the display module
+// was found to have a hardware defect (T_DO not connected internally).
+// Use BOOT button (GPIO 0) to cycle display modes instead.
 
 // ====================================================================================
 // FONT CONFIGURATION

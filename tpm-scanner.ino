@@ -35,6 +35,13 @@
  *   TFT_RST   -> GPIO 4  (reset) - Orange wire
  *   TFT_BL    -> GPIO 22 (backlight) - Blue wire
  *
+ * XPT2046 Touch Wiring (shares HSPI with display):
+ *   T_CLK     -> GPIO 14 (shared with TFT_SCLK)
+ *   T_DO      -> GPIO 12 (shared with TFT_MISO)
+ *   T_DIN     -> GPIO 13 (shared with TFT_MOSI)
+ *   T_CS      -> GPIO 27 (touch chip select)
+ *   T_IRQ     -> GPIO 26 (touch interrupt)
+ *
  * OLED Wiring (I2C - alternative to TFT):
  *   VCC -> 3.3V, GND -> GND, SDA -> GPIO 4, SCL -> GPIO 22
  *   To use OLED: uncomment USE_OLED_DISPLAY, comment USE_TFT_DISPLAY
@@ -75,6 +82,7 @@
 //   TFT_CS    = 15 - Red wire
 //   TFT_DC    = 2 - Yellow wire
 //   TFT_RST   = 4 - Orange wire
+
 
 // ============================================================================
 // Pin Definitions - CC1101 Module
@@ -408,7 +416,6 @@ void drawHeader();
 void drawSensorRow(int index, int yPos);
 void drawRSSIBars(int x, int y, int8_t rssi);
 void drawPressureBar(int x, int y, float pressure);
-void handleTouch();
 void handleButton();
 String formatTime(unsigned long ms);
 uint16_t getPressureColor(float psi);
@@ -669,9 +676,6 @@ void loop() {
   // Handle BOOT button for display mode switching
   handleButton();
 
-  // Handle touch input
-  handleTouch();
-
   yield();
 }
 
@@ -690,6 +694,7 @@ void initDisplay() {
   tft.fillScreen(COLOR_BG);
   Serial.println("TFT Display initialized (480x320) on HSPI");
   Serial.println("TFT pins: MISO=12, MOSI=13, SCLK=14, CS=15, DC=2, RST=4, BL=22");
+  Serial.println("Press BOOT button (GPIO 0) to cycle display modes");
 #elif defined(USE_OLED_DISPLAY)
   // Initialize I2C with custom pins
   Serial.printf("OLED pins: SDA=GPIO%d, SCL=GPIO%d\n", OLED_SDA, OLED_SCL);
@@ -734,63 +739,26 @@ void drawDisplay() {
 
   drawHeader();
 
-  // Draw sensor list
-  int visibleCount = min(sensorCount - scrollOffset, MAX_VISIBLE_SENSORS);
-  int yPos = HEADER_HEIGHT + 5;
-
   // Only clear sensor area when needed (reduces flicker)
-  bool didFullRedraw = false;
   if (needsFullRedraw || sensorCountChanged) {
     tft.fillRect(0, HEADER_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT - HEADER_HEIGHT, COLOR_BG);
     lastSensorCount = sensorCount;
     needsFullRedraw = false;
-    didFullRedraw = true;
   }
 
-  if (sensorCount == 0) {
-    // Show scanning message (only redraw on first frame or after sensor count change)
-    if (didFullRedraw) {
-      tft.setTextColor(COLOR_TEXT);
-      tft.setTextSize(2);
-      tft.setTextDatum(MC_DATUM);
-      tft.drawString("Scanning for TPMS sensors...", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
-      tft.setTextSize(1);
-      tft.drawString("315 MHz (North America)", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 30);
-    }
-
-    // Animated scanning indicator - clear just the dots area
-    static int scanAnim = 0;
-    scanAnim = (scanAnim + 1) % 4;
-    tft.fillRect(SCREEN_WIDTH / 2 - 20, SCREEN_HEIGHT / 2 + 45, 40, 15, COLOR_BG);
-    tft.setTextSize(1);
-    tft.setTextDatum(MC_DATUM);
-    String dots = "";
-    for (int i = 0; i <= scanAnim; i++) dots += ".";
-    tft.drawString(dots, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 50);
-  } else {
-    for (int i = 0; i < visibleCount; i++) {
-      int sensorIdx = i + scrollOffset;
-      drawSensorRow(sensorIdx, yPos);
-      yPos += SENSOR_ROW_HEIGHT;
-
-      // Draw divider
-      if (i < visibleCount - 1) {
-        tft.drawLine(10, yPos - 2, SCREEN_WIDTH - 10, yPos - 2, COLOR_DIVIDER);
-      }
-    }
+  // Draw the appropriate screen based on display mode
+  switch (displayMode) {
+    case DISPLAY_MODE_SCATTER:
+      drawScatterPlot();
+      break;
+    case DISPLAY_MODE_SENSORS:
+      drawSensorList();
+      break;
+    case DISPLAY_MODE_STATS:
+      drawStatsScreen();
+      break;
   }
 
-  // Scroll indicators
-  if (scrollOffset > 0) {
-    tft.fillTriangle(SCREEN_WIDTH - 20, HEADER_HEIGHT + 10,
-                     SCREEN_WIDTH - 10, HEADER_HEIGHT + 10,
-                     SCREEN_WIDTH - 15, HEADER_HEIGHT + 5, COLOR_TEXT);
-  }
-  if (scrollOffset + MAX_VISIBLE_SENSORS < sensorCount) {
-    tft.fillTriangle(SCREEN_WIDTH - 20, SCREEN_HEIGHT - 15,
-                     SCREEN_WIDTH - 10, SCREEN_HEIGHT - 15,
-                     SCREEN_WIDTH - 15, SCREEN_HEIGHT - 10, COLOR_TEXT);
-  }
 #elif defined(USE_OLED_DISPLAY)
   // OLED display (128x64) - Multiple display modes
   oled.clearDisplay();
@@ -1565,17 +1533,6 @@ void decayHistogram() {
 }
 
 // ============================================================================
-// Touch Handling
-// ============================================================================
-
-void handleTouch() {
-#ifdef USE_TFT_DISPLAY
-  // Touch handling would go here for displays with touch
-  // For now, this is a placeholder
-#endif
-}
-
-// ============================================================================
 // Button Handling
 // ============================================================================
 
@@ -1583,9 +1540,9 @@ void handleButton() {
   bool buttonState = digitalRead(BOOT_BUTTON);
   unsigned long now = millis();
 
-  // Check for button press (transition from HIGH to LOW)
-  if (buttonState == LOW && lastButtonState == HIGH) {
-    // Debounce check
+  // Trigger on button RELEASE (LOW to HIGH transition) - more reliable
+  // Only if enough time has passed since last action (debounce)
+  if (buttonState == HIGH && lastButtonState == LOW) {
     if (now - lastButtonPress >= BUTTON_DEBOUNCE_MS) {
       lastButtonPress = now;
 
@@ -1595,13 +1552,214 @@ void handleButton() {
       const char* modeNames[] = {"Scatter Plot", "Sensor List", "Statistics"};
       Serial.printf("[MODE] Display mode: %s\n", modeNames[displayMode]);
 
-      // Force immediate display update
+      // Force full redraw and immediate display update
+      needsFullRedraw = true;
       drawDisplay();
     }
   }
 
   lastButtonState = buttonState;
 }
+
+// ============================================================================
+// TFT Display Modes (480x320)
+// ============================================================================
+
+#ifdef USE_TFT_DISPLAY
+
+void drawScatterPlot() {
+  // TFT Scatter Plot - Full screen PSI histogram
+  // Graph area below header
+
+  #define TFT_GRAPH_LEFT 40
+  #define TFT_GRAPH_RIGHT 460
+  #define TFT_GRAPH_TOP (HEADER_HEIGHT + 20)
+  #define TFT_GRAPH_BOTTOM 280
+  #define TFT_GRAPH_WIDTH (TFT_GRAPH_RIGHT - TFT_GRAPH_LEFT)
+  #define TFT_GRAPH_HEIGHT (TFT_GRAPH_BOTTOM - TFT_GRAPH_TOP)
+
+  // Stats at top
+  tft.setTextColor(TFT_YELLOW, COLOR_BG);
+  tft.setTextSize(3);
+  tft.setTextDatum(TL_DATUM);
+  tft.drawString(String(uniqueSensors) + " sensors", 20, HEADER_HEIGHT + 5);
+
+  tft.setTextDatum(TR_DATUM);
+  tft.drawString(String(validPackets) + " readings", SCREEN_WIDTH - 20, HEADER_HEIGHT + 5);
+
+  // Draw axes
+  tft.drawFastVLine(TFT_GRAPH_LEFT - 2, TFT_GRAPH_TOP, TFT_GRAPH_HEIGHT + 5, TFT_WHITE);
+  tft.drawFastHLine(TFT_GRAPH_LEFT - 2, TFT_GRAPH_BOTTOM + 2, TFT_GRAPH_WIDTH + 5, TFT_WHITE);
+
+  // X-axis labels (PSI)
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_WHITE, COLOR_BG);
+  tft.setTextDatum(TC_DATUM);
+  tft.drawString(String(PSI_MIN), TFT_GRAPH_LEFT, TFT_GRAPH_BOTTOM + 10);
+  tft.drawString(String((PSI_MIN + PSI_MAX) / 2), TFT_GRAPH_LEFT + TFT_GRAPH_WIDTH / 2, TFT_GRAPH_BOTTOM + 10);
+  tft.drawString(String(PSI_MAX), TFT_GRAPH_RIGHT, TFT_GRAPH_BOTTOM + 10);
+  tft.drawString("PSI", TFT_GRAPH_LEFT + TFT_GRAPH_WIDTH / 2, TFT_GRAPH_BOTTOM + 30);
+
+  // Draw scatter dots from histogram
+  for (int bin = 0; bin < PSI_BINS; bin++) {
+    if (psiHistogram[bin] > 0) {
+      // Map bin index to X position
+      int x = TFT_GRAPH_LEFT + (bin * TFT_GRAPH_WIDTH) / (PSI_BINS - 1);
+
+      // Draw stacked dots - scale to fit graph
+      int maxDots = TFT_GRAPH_HEIGHT / 8;
+      int count = min((int)psiHistogram[bin], maxDots);
+
+      // Color based on PSI value
+      int psi = PSI_MIN + bin;
+      uint16_t color = TFT_GREEN;
+      if (psi < 28 || psi > 38) color = TFT_YELLOW;
+      if (psi < 25 || psi > 42) color = TFT_RED;
+
+      for (int d = 0; d < count; d++) {
+        int y = TFT_GRAPH_BOTTOM - 4 - (d * 8);
+        if (y >= TFT_GRAPH_TOP) {
+          tft.fillRect(x - 2, y, 5, 5, color);
+        }
+      }
+    }
+  }
+
+  // If no data, show waiting message
+  if (validPackets == 0) {
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_DARKGREY, COLOR_BG);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString("Waiting for TPMS data...", SCREEN_WIDTH / 2, TFT_GRAPH_TOP + TFT_GRAPH_HEIGHT / 2);
+  }
+}
+
+void drawSensorList() {
+  // TFT Sensor List - Show all tracked sensors
+
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_WHITE, COLOR_BG);
+
+  if (sensorCount == 0) {
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString("Scanning for TPMS sensors...", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
+    tft.setTextSize(1);
+    tft.drawString("315 MHz (North America)", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 30);
+
+    // Animated dots
+    static int scanAnim = 0;
+    scanAnim = (scanAnim + 1) % 4;
+    String dots = "";
+    for (int i = 0; i <= scanAnim; i++) dots += ".";
+    tft.setTextSize(2);
+    tft.fillRect(SCREEN_WIDTH / 2 - 30, SCREEN_HEIGHT / 2 + 50, 60, 20, COLOR_BG);
+    tft.drawString(dots, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 55);
+    return;
+  }
+
+  // Draw column headers
+  int yPos = HEADER_HEIGHT + 5;
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_CYAN, COLOR_BG);
+  tft.setTextDatum(TL_DATUM);
+  tft.drawString("SENSOR ID", 10, yPos);
+  tft.drawString("PRESSURE", 150, yPos);
+  tft.drawString("TEMP", 280, yPos);
+  tft.drawString("SIGNAL", 360, yPos);
+  tft.drawString("AGE", 430, yPos);
+  yPos += 15;
+  tft.drawFastHLine(10, yPos, SCREEN_WIDTH - 20, COLOR_DIVIDER);
+  yPos += 5;
+
+  // Draw sensor rows
+  int visibleCount = min(sensorCount - scrollOffset, MAX_VISIBLE_SENSORS);
+  for (int i = 0; i < visibleCount; i++) {
+    int sensorIdx = i + scrollOffset;
+    drawSensorRow(sensorIdx, yPos);
+    yPos += SENSOR_ROW_HEIGHT;
+
+    if (i < visibleCount - 1) {
+      tft.drawFastHLine(10, yPos - 2, SCREEN_WIDTH - 20, COLOR_DIVIDER);
+    }
+  }
+
+  // Scroll indicators
+  if (scrollOffset > 0) {
+    tft.fillTriangle(SCREEN_WIDTH - 20, HEADER_HEIGHT + 25,
+                     SCREEN_WIDTH - 10, HEADER_HEIGHT + 25,
+                     SCREEN_WIDTH - 15, HEADER_HEIGHT + 15, TFT_WHITE);
+  }
+  if (scrollOffset + MAX_VISIBLE_SENSORS < sensorCount) {
+    tft.fillTriangle(SCREEN_WIDTH - 20, SCREEN_HEIGHT - 15,
+                     SCREEN_WIDTH - 10, SCREEN_HEIGHT - 15,
+                     SCREEN_WIDTH - 15, SCREEN_HEIGHT - 5, TFT_WHITE);
+  }
+}
+
+void drawStatsScreen() {
+  // TFT Statistics Screen
+
+  int yPos = HEADER_HEIGHT + 20;
+  int lineHeight = 35;
+
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_WHITE, COLOR_BG);
+  tft.setTextDatum(TL_DATUM);
+
+  // Title
+  tft.setTextColor(TFT_CYAN, COLOR_BG);
+  tft.setTextSize(3);
+  tft.drawString("STATISTICS", SCREEN_WIDTH / 2 - 80, yPos);
+  yPos += lineHeight + 10;
+
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_WHITE, COLOR_BG);
+
+  // Uptime
+  tft.drawString("Uptime:", 30, yPos);
+  tft.setTextColor(TFT_GREEN, COLOR_BG);
+  tft.drawString(formatTime(millis() - startTime), 200, yPos);
+  yPos += lineHeight;
+
+  // Total packets
+  tft.setTextColor(TFT_WHITE, COLOR_BG);
+  tft.drawString("Total Packets:", 30, yPos);
+  tft.setTextColor(TFT_YELLOW, COLOR_BG);
+  tft.drawString(String(totalPackets), 200, yPos);
+  yPos += lineHeight;
+
+  // Valid readings
+  tft.setTextColor(TFT_WHITE, COLOR_BG);
+  tft.drawString("Valid Readings:", 30, yPos);
+  tft.setTextColor(TFT_GREEN, COLOR_BG);
+  tft.drawString(String(validPackets), 200, yPos);
+  yPos += lineHeight;
+
+  // Unique sensors
+  tft.setTextColor(TFT_WHITE, COLOR_BG);
+  tft.drawString("Unique Sensors:", 30, yPos);
+  tft.setTextColor(TFT_CYAN, COLOR_BG);
+  tft.drawString(String(uniqueSensors), 200, yPos);
+  yPos += lineHeight;
+
+  // Active sensors
+  tft.setTextColor(TFT_WHITE, COLOR_BG);
+  tft.drawString("Active Sensors:", 30, yPos);
+  tft.setTextColor(TFT_GREEN, COLOR_BG);
+  tft.drawString(String(sensorCount), 200, yPos);
+  yPos += lineHeight;
+
+  // Current RSSI
+  tft.setTextColor(TFT_WHITE, COLOR_BG);
+  tft.drawString("Current RSSI:", 30, yPos);
+  int8_t rssi = cc1101GetRSSI();
+  if (rssi > -80) tft.setTextColor(TFT_GREEN, COLOR_BG);
+  else if (rssi > -95) tft.setTextColor(TFT_YELLOW, COLOR_BG);
+  else tft.setTextColor(TFT_RED, COLOR_BG);
+  tft.drawString(String(rssi) + " dBm", 200, yPos);
+}
+
+#endif  // USE_TFT_DISPLAY
 
 // ============================================================================
 // OLED Display Modes
